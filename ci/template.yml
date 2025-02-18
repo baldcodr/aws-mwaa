@@ -1,0 +1,162 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: AWS CloudFormation template to deploy Managed Workflows for Apache Airflow (MWAA) with GitHub PR trigger.
+
+Parameters:
+  GithubRepo:
+    Type: String
+    Description: GitHub repository name
+  GithubRepoOwner:
+    Type: String
+    Description: GitHub repository owner
+  GitHubBranch:
+    Type: String
+    Default: main
+    Description: GitHub branch to trigger on PR merge
+  MWAAName:
+    Type: String
+    Default: my-mwaa-env
+    Description: Name of the MWAA environment
+  GitHubConnectionArn:
+    Type: String
+    Description: 'ARN of the GitHub Connection'
+
+Resources:
+  DAGsS3Bucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "mwaa-dags-${AWS::AccountId}"
+
+  DAGsS3BucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref DAGsS3Bucket
+      PolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: airflow.amazonaws.com
+            Action: "s3:GetObject"
+            Resource: !Sub "arn:aws:s3:::${DAGsS3Bucket}/*"
+
+  MWAARole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "MWAAExecutionRole-${AWS::StackName}"
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: 
+                - "airflow-env.amazonaws.com"
+                - "airflow.amazonaws.com"
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: MWAAS3Access
+          PolicyDocument:
+            Statement:
+              - Effect: Allow
+                Action:
+                  - "s3:ListBucket"
+                  - "s3:GetObject"
+                  - "s3:PutObject"
+                  - "s3:GetAccountPublicAccessBlock"
+                  - "s3:Get*"
+                Resource:
+                  - !Sub "arn:aws:s3:::${DAGsS3Bucket}"
+                  - !Sub "arn:aws:s3:::${DAGsS3Bucket}/*"
+        - PolicyName: MWAASecretsManagerAccess
+          PolicyDocument:
+            Statement:
+              - Effect: Allow
+                Action:
+                  - "secretsmanager:GetResourcePolicy"
+                  - "secretsmanager:GetSecretValue"
+                  - "secretsmanager:DescribeSecret"
+                  - "secretsmanager:ListSecretVersionIds"
+                Resource: "*"
+  MWAAEnvironment:
+    Type: AWS::MWAA::Environment
+    Properties:
+      Name: !Ref MWAAName
+      AirflowConfigurationOptions: 
+        core.default_timezone: utc
+        logging.logging_level: INFO
+      ExecutionRoleArn: !GetAtt MWAARole.Arn
+      SourceBucketArn: !Sub "arn:aws:s3:::${DAGsS3Bucket}"
+      DagS3Path: "dags/"
+      AirflowVersion: "2.10.3"
+      EnvironmentClass: "mw1.small"
+      NetworkConfiguration:
+        SubnetIds: ["subnet-08bdc35c044bada1a", "subnet-0c5dddc91f1236405"]
+        SecurityGroupIds: ["sg-099807d063690870c"]
+      WebserverAccessMode: "PUBLIC_ONLY"
+
+  CodePipelineRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "CodePipelineRole-${AWS::StackName}"
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: codepipeline.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: CodePipelineS3Access
+          PolicyDocument:
+            Statement:
+              - Effect: Allow
+                Action:
+                  - "s3:PutObject"
+                  - "s3:GetObject"
+                Resource: 
+                  - !Sub "arn:aws:s3:::${DAGsS3Bucket}/*"
+
+  CodePipeline:
+    Type: AWS::CodePipeline::Pipeline
+    Properties:
+      Name: !Sub "MWAA-Pipeline-${AWS::StackName}"
+      RoleArn: !GetAtt CodePipelineRole.Arn
+      ArtifactStore:
+        Type: S3
+        Location: !Ref DAGsS3Bucket
+      Stages:
+        - Name: Source
+          Actions:
+          - Name: GitHubSource
+            RunOrder: 1
+            ActionTypeId:
+              Category: Source
+              Owner: AWS
+              Version: "1"
+              Provider: CodeStarSourceConnection
+            Configuration:
+              ConnectionArn: !Ref GitHubConnectionArn
+              DetectChanges: true
+              FullRepositoryId: !Sub "${GithubRepoOwner}/${GithubRepo}"
+              BranchName: !Ref GitHubBranch
+              OutputArtifactFormat: "CODE_ZIP"
+            OutputArtifacts:
+              - Name: SourceOutput
+        - Name: Deploy
+          Actions:
+            - Name: DeployToS3
+              RunOrder: 2
+              ActionTypeId:
+                Category: Deploy
+                Owner: AWS
+                Provider: S3
+                Version: "1"
+              Configuration:
+                BucketName: !Ref DAGsS3Bucket
+                Extract: "true"
+              InputArtifacts:
+                - Name: SourceOutput
+
+Outputs:
+  MWAADashboard:
+    Description: URL to the Airflow Web Interface
+    Value: !Sub "https://${MWAAEnvironment.WebserverUrl}"
+  DAGBucketName:
+    Description: S3 Bucket storing DAG files
+    Value: !Ref DAGsS3Bucket

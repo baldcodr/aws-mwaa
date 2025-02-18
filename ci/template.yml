@@ -5,9 +5,11 @@ Parameters:
   GithubRepo:
     Type: String
     Description: GitHub repository name
+    Default: aws-mwaa
   GithubRepoOwner:
     Type: String
     Description: GitHub repository owner
+    Default: baldcodr
   GitHubBranch:
     Type: String
     Default: main
@@ -101,6 +103,8 @@ Resources:
             Principal:
               Service: codepipeline.amazonaws.com
             Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSCodeStarServiceRole
       Policies:
         - PolicyName: CodePipelineS3Access
           PolicyDocument:

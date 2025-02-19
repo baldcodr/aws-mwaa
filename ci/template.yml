@@ -23,10 +23,35 @@ Parameters:
     Description: 'ARN of the GitHub Connection'
 
 Resources:
+  SageMakerExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: AmazonMWAAGlueRole
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: 
+                - sagemaker.amazonaws.com
+                - glue.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSageMakerFullAccess
+        - arn:aws:iam::aws:policy/AmazonSageMakerCanvasFullAccess
+        - arn:aws:iam::aws:policy/AmazonSageMakerCanvasDataPrepFullAccess
+        - arn:aws:iam::aws:policy/service-role/AWSGlueServiceRole
   DAGsS3Bucket:
     Type: AWS::S3::Bucket
     Properties:
       BucketName: !Sub "mwaa-dags-${AWS::AccountId}"
+      VersioningConfiguration:
+        Status: Enabled
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        IgnorePublicAcls: true
+        BlockPublicPolicy: true
+        RestrictPublicBuckets: true
 
   DAGsS3BucketPolicy:
     Type: AWS::S3::BucketPolicy
@@ -40,7 +65,7 @@ Resources:
             Action: "s3:GetObject"
             Resource: !Sub "arn:aws:s3:::${DAGsS3Bucket}/*"
 
-  MWAARole:
+  MWAAExecRole:
     Type: AWS::IAM::Role
     Properties:
       RoleName: !Sub "MWAAExecutionRole-${AWS::StackName}"
@@ -76,16 +101,20 @@ Resources:
                   - "secretsmanager:DescribeSecret"
                   - "secretsmanager:ListSecretVersionIds"
                 Resource: "*"
+      ManagedPolicyArns:
+        - !Sub "arn:aws:iam::${AWS::AccountId}:policy/ManagedAirflowAccessPolicy"
   MWAAEnvironment:
     Type: AWS::MWAA::Environment
     Properties:
       Name: !Ref MWAAName
       AirflowConfigurationOptions: 
         core.default_timezone: utc
+        core.enable_xcom_pickling: True
         logging.logging_level: INFO
-      ExecutionRoleArn: !GetAtt MWAARole.Arn
+      ExecutionRoleArn: !GetAtt MWAAExecRole.Arn
       SourceBucketArn: !Sub "arn:aws:s3:::${DAGsS3Bucket}"
       DagS3Path: "dags/"
+      RequirementsS3Path: "requirements/"
       AirflowVersion: "2.10.3"
       EnvironmentClass: "mw1.small"
       NetworkConfiguration:

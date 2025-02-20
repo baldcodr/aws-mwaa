@@ -1,3 +1,5 @@
+--constraint "https://raw.githubusercontent.com/apache/airflow/constraints-2.10.3/constraints-3.11.txt"
+
 boto3==1.35.75
 sagemaker==2.239.3
 s3fs==2024.6.1

@@ -14,13 +14,14 @@ Parameters:
     Type: String
     Default: main
     Description: GitHub branch to trigger on PR merge
-  MWAAName:
-    Type: String
-    Default: my-mwaa-env
-    Description: Name of the MWAA environment
   GitHubConnectionArn:
     Type: String
     Description: 'ARN of the GitHub Connection'
+  DAGsS3Bucket:
+    Type: String
+    Description: Name of the S3 bucket to store DAGs
+    Default: aws-mwaa-dags-
+
 
 Resources:
   SageMakerExecutionRole:
@@ -41,87 +42,6 @@ Resources:
         - arn:aws:iam::aws:policy/AmazonSageMakerCanvasFullAccess
         - arn:aws:iam::aws:policy/AmazonSageMakerCanvasDataPrepFullAccess
         - arn:aws:iam::aws:policy/service-role/AWSGlueServiceRole
-  DAGsS3Bucket:
-    Type: AWS::S3::Bucket
-    Properties:
-      BucketName: !Sub "mwaa-dags-${AWS::AccountId}"
-      VersioningConfiguration:
-        Status: Enabled
-      PublicAccessBlockConfiguration:
-        BlockPublicAcls: true
-        IgnorePublicAcls: true
-        BlockPublicPolicy: true
-        RestrictPublicBuckets: true
-
-  DAGsS3BucketPolicy:
-    Type: AWS::S3::BucketPolicy
-    Properties:
-      Bucket: !Ref DAGsS3Bucket
-      PolicyDocument:
-        Statement:
-          - Effect: Allow
-            Principal:
-              Service: airflow.amazonaws.com
-            Action: "s3:GetObject"
-            Resource: !Sub "arn:aws:s3:::${DAGsS3Bucket}/*"
-
-  MWAAExecRole:
-    Type: AWS::IAM::Role
-    Properties:
-      RoleName: !Sub "MWAAExecutionRole-${AWS::StackName}"
-      AssumeRolePolicyDocument:
-        Statement:
-          - Effect: Allow
-            Principal:
-              Service: 
-                - "airflow-env.amazonaws.com"
-                - "airflow.amazonaws.com"
-            Action: sts:AssumeRole
-      Policies:
-        - PolicyName: MWAAS3Access
-          PolicyDocument:
-            Statement:
-              - Effect: Allow
-                Action:
-                  - "s3:ListBucket"
-                  - "s3:GetObject"
-                  - "s3:PutObject"
-                  - "s3:GetAccountPublicAccessBlock"
-                  - "s3:Get*"
-                Resource:
-                  - !Sub "arn:aws:s3:::${DAGsS3Bucket}"
-                  - !Sub "arn:aws:s3:::${DAGsS3Bucket}/*"
-        - PolicyName: MWAASecretsManagerAccess
-          PolicyDocument:
-            Statement:
-              - Effect: Allow
-                Action:
-                  - "secretsmanager:GetResourcePolicy"
-                  - "secretsmanager:GetSecretValue"
-                  - "secretsmanager:DescribeSecret"
-                  - "secretsmanager:ListSecretVersionIds"
-                Resource: "*"
-      ManagedPolicyArns:
-        - !Sub "arn:aws:iam::${AWS::AccountId}:policy/ManagedAirflowAccessPolicy"
-  MWAAEnvironment:
-    Type: AWS::MWAA::Environment
-    Properties:
-      Name: !Ref MWAAName
-      AirflowConfigurationOptions: 
-        core.default_timezone: utc
-        core.enable_xcom_pickling: True
-        logging.logging_level: INFO
-      ExecutionRoleArn: !GetAtt MWAAExecRole.Arn
-      SourceBucketArn: !Sub "arn:aws:s3:::${DAGsS3Bucket}"
-      DagS3Path: "dags/"
-      RequirementsS3Path: "requirements/"
-      AirflowVersion: "2.10.3"
-      EnvironmentClass: "mw1.small"
-      NetworkConfiguration:
-        SubnetIds: ["subnet-08bdc35c044bada1a", "subnet-0c5dddc91f1236405"]
-        SecurityGroupIds: ["sg-099807d063690870c"]
-      WebserverAccessMode: "PUBLIC_ONLY"
-
   CodePipelineRole:
     Type: AWS::IAM::Role
     Properties:
@@ -185,11 +105,3 @@ Resources:
                 Extract: "true"
               InputArtifacts:
                 - Name: SourceOutput
-
-Outputs:
-  MWAADashboard:
-    Description: URL to the Airflow Web Interface
-    Value: !Sub "https://${MWAAEnvironment.WebserverUrl}"
-  DAGBucketName:
-    Description: S3 Bucket storing DAG files
-    Value: !Ref DAGsS3Bucket

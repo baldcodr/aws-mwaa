@@ -12,8 +12,8 @@ from airflow.utils.dates import days_ago
 from airflow.operators.python_operator import PythonOperator
 
 # airflow sagemaker operators
-from airflow.providers.amazon.aws.operators.sagemaker_training import SageMakerTrainingOperator
-from airflow.providers.amazon.aws.operators.sagemaker_endpoint import SageMakerEndpointOperator
+from airflow.providers.amazon.aws.operators.sagemaker import SageMakerTrainingOperator
+from airflow.providers.amazon.aws.operators.sagemaker import SageMakerEndpointOperator
 from airflow.providers.amazon.aws.hooks.base_aws import AwsBaseHook
 
 # boto3
